@@ -507,7 +507,13 @@ export default function Home() {
         setStatusMsg(`Finished — ${final.results.filter((r) => r.status === "COMPLETED" || r.status === "COMPLETED_WITH_WARNINGS").length} completed`);
         setData(final);
       } else if (!error) {
-        setError("Run ended without a result.");
+        // The stream ended without a final result: the serverless function
+        // was almost certainly terminated at Vercel's max-duration limit
+        // mid-run (the pipeline takes 3-6 min; the last stage is the longest).
+        setError(
+          "The run was interrupted before it finished — the Vercel function likely hit its maximum duration. " +
+          "Upgrade to a plan with a higher function timeout (Pro: 800s), or run fewer/simpler tickets."
+        );
       }
     } catch (e) {
       setStatusMsg("");

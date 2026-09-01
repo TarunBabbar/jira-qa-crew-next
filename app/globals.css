@@ -155,13 +155,68 @@ code { background: var(--code-bg); padding: .12rem .38rem; border-radius: 4px; f
 .advanced { margin-top: 1.1rem; }
 .adv-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: .4rem .9rem; font-size: .88rem; }
 
-/* Stage progress */
+/* Stage progress — live agent timeline */
 .stages { margin-top: .5rem; }
 .qa-stage {
-  border-left: 3px solid var(--accent); padding: .28rem .7rem; margin: .18rem 0;
-  background: rgba(160,113,47,.08); border-radius: 0 6px 6px 0; font-size: .9rem;
+  border-left: 3px solid var(--border); padding: .45rem .8rem; margin: .3rem 0;
+  background: rgba(160,113,47,.04); border-radius: 0 8px 8px 0; font-size: .9rem;
+  transition: border-color .3s;
 }
+.qa-stage.active { border-left-color: var(--accent); background: rgba(160,113,47,.08); }
+.qa-stage.done { border-left-color: var(--ok); background: rgba(91,122,77,.07); }
+.qa-stage.failed { border-left-color: var(--err); background: rgba(160,64,47,.07); }
+.stage-row { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
 .stage-msg { color: var(--muted); font-size: .85rem; }
+.stage-output {
+  margin: .5rem 0 0; background: var(--panel-2); border: 1px solid var(--border);
+  border-radius: 8px; padding: 0;
+}
+.stage-output summary {
+  cursor: pointer; font-size: .8rem; font-weight: 600; color: var(--accent);
+  padding: .45rem .7rem; user-select: none; list-style: none;
+}
+.stage-output summary::before { content: "▸ "; transition: transform .15s; display: inline-block; }
+.stage-output[open] summary::before { transform: rotate(90deg); }
+.stage-output pre {
+  margin: 0; padding: .6rem .8rem; border-top: 1px solid var(--border);
+  font-size: .83rem; line-height: 1.55; white-space: pre-wrap; word-break: break-word;
+  color: var(--text); font-family: inherit; background: var(--panel);
+}
+
+/* Running status indicator next to the button */
+.run-status { display: inline-flex; align-items: center; gap: .5rem; }
+.run-status-label {
+  font-size: .72rem; font-weight: 700; letter-spacing: .6px; color: #fff;
+  background: var(--accent); padding: .18rem .55rem; border-radius: 999px;
+  text-transform: uppercase;
+}
+
+/* Animated status indicator (pulse) */
+.pulse {
+  width: 10px; height: 10px; border-radius: 50%; display: inline-block;
+  background: var(--accent); position: relative; flex-shrink: 0;
+}
+.pulse::after {
+  content: ""; position: absolute; inset: -4px; border-radius: 50%;
+  border: 2px solid var(--accent); animation: pulse-ring 1.6s ease-out infinite;
+}
+@keyframes pulse-ring {
+  0% { transform: scale(.6); opacity: 1; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+.pulse.ok { background: var(--ok); }
+.pulse.ok::after { border-color: var(--ok); }
+.pulse.err { background: var(--err); }
+.pulse.err::after { border-color: var(--err); }
+
+/* Overall run progress bar */
+.run-progress { height: 6px; background: var(--panel-2); border-radius: 999px; overflow: hidden; margin: .6rem 0 1rem; }
+.run-progress > div {
+  height: 100%; background: linear-gradient(90deg, var(--accent), #c4a86b);
+  border-radius: 999px; transition: width .5s ease;
+}
+.stage-label { font-weight: 600; }
+.stage-status { font-size: .78rem; color: var(--muted); text-transform: uppercase; letter-spacing: .3px; }
 
 /* Result tabs */
 .result-card { padding-top: 1rem; }

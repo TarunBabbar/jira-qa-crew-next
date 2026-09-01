@@ -173,13 +173,14 @@ export class CommandCodeLlm {
     };
   }
 
-  // Run one stage prompt, applying the enforcement ladder and returning parsed JSON.
+  // Run one stage prompt, applying the enforcement ladder and returning parsed JSON
+  // plus the raw completion text (so the UI can stream what the agent "wrote").
   async generateJson<T>(
     system: string,
     user: string,
     schema: unknown,
     opts: { allowSchema?: boolean; allowJsonObject?: boolean } = {}
-  ): Promise<T | null> {
+  ): Promise<{ parsed: T | null; raw: string } | null> {
     const allowSchema = opts.allowSchema ?? true;
     const allowJsonObject = opts.allowJsonObject ?? true;
     let schemaAllowed = allowSchema;
@@ -218,8 +219,7 @@ export class CommandCodeLlm {
           { responseFormat }
         );
         const parsed = parseModel<T>(result.content);
-        if (parsed === null) return null;
-        return parsed;
+        return { parsed, raw: result.content };
       } catch (e) {
         if (rung === "schema" && schemaRejected(e)) {
           schemaAllowed = false;

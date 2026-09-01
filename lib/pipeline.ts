@@ -249,7 +249,7 @@ export class QAPipeline {
     let validation: { ok: boolean; errors: string[]; warnings: string[] };
 
     // First attempt
-    obj = await this.executeAndValidate<T>(system, opts.buildPrompt(), opts.schema, opts.validate);
+    obj = await this.executeAndValidate<T>(system, opts.buildPrompt(), opts.schema, opts.validate, opts.result.ticket_key, opts.stageName);
     validation = obj === null
       ? { ok: false, errors: ["structured output could not be parsed"], warnings: [] }
       : opts.validate(obj);
@@ -260,7 +260,7 @@ export class QAPipeline {
       stage.message = `${opts.stageName} output rejected, one repair attempt`;
       this.emit(opts.result.ticket_key, opts.stageName, "RUNNING", `${opts.stageName} output rejected, one repair attempt`);
       const repairPrompt = opts.buildPrompt() + appendRepairInstruction(problems);
-      obj = await this.executeAndValidate<T>(system, repairPrompt, opts.schema, opts.validate);
+      obj = await this.executeAndValidate<T>(system, repairPrompt, opts.schema, opts.validate, opts.result.ticket_key, opts.stageName);
       validation = obj === null
         ? { ok: false, errors: problems, warnings: [] }
         : opts.validate(obj);
@@ -282,6 +282,8 @@ export class QAPipeline {
     stage.message = `${opts.stageName} completed` + (validation.warnings.length ? ` with ${validation.warnings.length} warning(s)` : "");
     stage.finished_at = new Date().toISOString();
     this.emit(opts.result.ticket_key, opts.stageName, stage.status, stage.message);
+    // Emit a clean, readable summary of what the agent produced (no raw JSON).
+    this.emit(opts.result.ticket_key, opts.stageName, "RESULT", summarizeStage(opts.stageName, obj as Record<string, any>));
     return obj;
   }
 
@@ -289,7 +291,9 @@ export class QAPipeline {
     system: string,
     user: string,
     schema: Record<string, unknown>,
-    validate: (obj: T) => { ok: boolean; errors: string[]; warnings: string[] }
+    validate: (obj: T) => { ok: boolean; errors: string[]; warnings: string[] },
+    ticketKey: string,
+    stageName: StageName
   ): Promise<T | null> {
     const maxEmpty = Math.max(1, this.settings.pipelineMaxRetries);
     let emptyAttempts = 0;
@@ -306,15 +310,16 @@ export class QAPipeline {
       if (rung === "json" && !allowJson) { i++; continue; }
       calls++;
       try {
-        const parsed = await this.llm.generateJson<T>(system, user, schema, {
+        const result = await this.llm.generateJson<T>(system, user, schema, {
           allowSchema: rung === "schema" && allowSchema,
           allowJsonObject: rung === "json" && allowJson,
         });
-        if (parsed === null) return null;
-        const validation = validate(parsed);
-        if (validation.ok) return parsed;
+        if (result === null) return null;
+        if (result.parsed === null) return null;
+        const validation = validate(result.parsed);
+        if (validation.ok) return result.parsed;
         // Repair is handled by the caller; here we return the unvalidated obj.
-        return parsed;
+        return result.parsed;
       } catch (e) {
         const msg = String(e);
         if (rung === "schema" && /response_format|json_schema|structured output/.test(msg) && msg.includes("400")) {
@@ -341,6 +346,53 @@ export class QAPipeline {
       }
     }
     return null;
+  }
+}
+
+// Clean, readable summary of a stage's validated output (no raw JSON).
+function summarizeStage(stageName: StageName, obj: Record<string, any>): string {
+  if (!obj) return "";
+  switch (stageName) {
+    case "Jira Analyst": {
+      const reqs = obj.requirements ?? [];
+      const acs = obj.acceptance_criteria ?? [];
+      const lines = [`Extracted ${reqs.length} requirement(s), ${acs.length} acceptance criteria.`, ""];
+      for (const r of reqs.slice(0, 8)) lines.push(`• ${r.id} [${r.provenance}] ${r.text}`);
+      if (reqs.length > 8) lines.push(`… and ${reqs.length - 8} more`);
+      if ((obj.missing_information ?? []).length) {
+        lines.push("", `Missing info: ${obj.missing_information.length} item(s) recorded.`);
+      }
+      return lines.join("\n");
+    }
+    case "Test Plan Writer": {
+      const sections = obj.sections ?? [];
+      const scenarios = obj.scenarios ?? [];
+      const lines = [`Wrote ${sections.length} sections, ${scenarios.length} scenarios.`, ""];
+      for (const s of sections.slice(0, 12)) lines.push(`• ${s.number}. ${s.title}`);
+      return lines.join("\n");
+    }
+    case "Test Case Writer": {
+      const cases = obj.test_cases ?? [];
+      const automated = cases.filter((c: any) => c.automation_candidate === "Yes" || c.automation_candidate === "Partial").length;
+      const lines = [`Wrote ${cases.length} test case(s), ${automated} marked for automation.`, ""];
+      for (const c of cases.slice(0, 8)) {
+        lines.push(`• ${c.id} [${c.priority}, ${c.test_type}] ${c.title}`);
+      }
+      if (cases.length > 8) lines.push(`… and ${cases.length - 8} more`);
+      return lines.join("\n");
+    }
+    case "Playwright Coder": {
+      const files = obj.files ?? [];
+      const traces = obj.traces ?? [];
+      const lines = [`Generated ${files.length} file(s), ${traces.length} trace(s). Readiness: ${obj.readiness ?? "?"}`, ""];
+      for (const f of files) lines.push(`• ${f.path}`);
+      if ((obj.missing_information ?? []).length) {
+        lines.push("", `Needs: ${obj.missing_information.length} item(s) before it can run.`);
+      }
+      return lines.join("\n");
+    }
+    default:
+      return "";
   }
 }
 

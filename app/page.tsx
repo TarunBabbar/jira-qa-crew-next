@@ -11,7 +11,7 @@ interface ConfigStatus {
   pipeline: { mode: string; max_tickets: number; demo_mode: boolean; output_dir: string };
 }
 
-interface StageInfo { status: string; message: string }
+interface StageInfo { status: string; message: string; stream?: string }
 interface ProgressEvent { ticketKey: string; stage: string; status: string; message: string }
 
 interface RunResponse {
@@ -103,11 +103,46 @@ function StageList({ stages }: { stages: Record<string, StageInfo> }) {
         const icon = STATUS_ICON[info.status] ?? "⚪";
         return (
           <div className="qa-stage" key={stage}>
-            {icon} <strong>{stage}</strong>
-            {info.message && <span className="stage-msg"> — {esc(info.message)}</span>}
+            <div className="stage-row">
+              {icon} <strong>{stage}</strong>
+              {info.message && <span className="stage-msg"> — {esc(info.message)}</span>}
+            </div>
+            {info.stream && (
+              <details className="stage-output" open>
+                <summary>Agent output</summary>
+                <pre>{esc(decodeEntities(info.stream.slice(-4000)))}</pre>
+              </details>
+            )}
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// Decode HTML entities that can leak through from the LLM content.
+function decodeEntities(s: string): string {
+  return s
+    .replace(/&#39;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
+}
+
+function RunProgress({ progress }: { progress: Record<string, Record<string, StageInfo>> }) {
+  // Count completed stages across all tickets.
+  const total = Object.keys(progress).length * STAGE_ORDER.length;
+  let done = 0;
+  for (const stages of Object.values(progress)) {
+    for (const s of Object.values(stages)) {
+      if (s.status === "COMPLETED" || s.status === "WARNING") done++;
+    }
+  }
+  const pct = total ? Math.round((done / total) * 100) : 0;
+  return (
+    <div className="run-progress">
+      <div style={{ width: `${Math.min(100, pct)}%` }} />
     </div>
   );
 }
@@ -490,10 +525,23 @@ export default function Home() {
           const payload = JSON.parse(dataLine.slice(6));
           if (event === "progress") {
             const p = payload as ProgressEvent;
-            setProgress((prev) => ({
-              ...prev,
-              [p.ticketKey]: { ...(prev[p.ticketKey] ?? {}), [p.stage]: { status: p.status, message: p.message } },
-            }));
+            setProgress((prev) => {
+              const prevStage = prev[p.ticketKey]?.[p.stage] ?? { status: "PENDING", message: "" };
+              const isResult = p.status === "RESULT";
+              return {
+                ...prev,
+                [p.ticketKey]: {
+                  ...(prev[p.ticketKey] ?? {}),
+                  [p.stage]: {
+                    // Keep the short status message (e.g. "Test Plan Writer completed")
+                    // and put the full agent output summary in `stream`.
+                    status: isResult ? prevStage.status || "COMPLETED" : p.status,
+                    message: isResult ? prevStage.message : p.message,
+                    stream: isResult ? p.message : prevStage.stream,
+                  },
+                },
+              };
+            });
             setStatusMsg(`${p.ticketKey} — ${p.stage}: ${p.status}`);
           } else if (event === "done") {
             final = payload as RunResponse;
@@ -576,7 +624,14 @@ export default function Home() {
             <button onClick={run} disabled={busy}>
               {busy ? "Running…" : "Analyze & Generate QA Pack"}
             </button>
-            {statusMsg && <span className="hint">{busy && <span className="spin" />}{statusMsg}</span>}
+            {busy && (
+              <span className="run-status">
+                <span className="pulse" />
+                <span className="run-status-label">RUNNING</span>
+                <span className="hint">{statusMsg}</span>
+              </span>
+            )}
+            {!busy && statusMsg && <span className="hint">{statusMsg}</span>}
           </div>
           {overLimit.length > 0 && <div className="warn-box">Only the first {esc(status?.pipeline.max_tickets ?? 20)} tickets are processed. Dropped: {overLimit.map(esc).join(", ")}</div>}
         </div>

@@ -22,7 +22,10 @@ html, body {
   padding: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* Match the original Streamlit theme: sans-serif, 1rem base */
+  font-family: "Source Sans Pro", "Segoe UI", system-ui, -apple-system, sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
 }
 
 .wrap { max-width: 1080px; margin: 0 auto; padding: 2.2rem 1.25rem 4rem; }
@@ -35,8 +38,8 @@ html, body {
   margin-bottom: 1.6rem;
   box-shadow: 0 4px 18px rgba(90, 70, 30, .12);
 }
-.hero h1 { margin: 0 0 .4rem; font-size: 2rem; color: #3a2e1a; letter-spacing: -.4px; }
-.hero p { margin: 0; color: #5c4d30; font-size: 1.02rem; }
+.hero h1 { margin: 0 0 .4rem; font-size: 2.05rem; color: #3a2e1a; letter-spacing: -.5px; line-height: 1.2; }
+.hero p { margin: 0; color: #5c4d30; font-size: 1.02rem; line-height: 1.5; }
 
 .card {
   background: var(--panel);
@@ -78,8 +81,8 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 
 .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .9rem; margin-bottom: 1.3rem; }
 .metric { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: .9rem 1.1rem; }
-.metric .v { font-size: 1.55rem; font-weight: 700; color: var(--text); }
-.metric .k { font-size: .78rem; color: var(--muted); }
+.metric .v { font-size: 1.5rem; font-weight: 700; color: var(--text); line-height: 1.2; }
+.metric .k { font-size: .78rem; color: var(--muted); letter-spacing: .2px; }
 
 details {
   border: 1px solid var(--border); border-radius: 10px;
@@ -147,7 +150,7 @@ code { background: var(--code-bg); padding: .12rem .38rem; border-radius: 4px; f
 .stages { margin-top: .5rem; }
 .qa-stage {
   border-left: 3px solid var(--accent); padding: .3rem .7rem; margin: .2rem 0;
-  background: rgba(160,113,47,.08); border-radius: 0 8px 8px 0; font-size: .92rem;
+  background: rgba(160,113,47,.08); border-radius: 0 8px 8px 0; font-size: .9rem;
 }
 .stage-msg { color: var(--muted); font-size: .85rem; }
 

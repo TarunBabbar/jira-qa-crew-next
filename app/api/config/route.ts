@@ -31,6 +31,7 @@ export async function GET() {
       mode: s.jiraIntegrationMode,
       max_tickets: s.pipelineMaxTickets,
       demo_mode: s.demoMode,
+      split_playwright: s.splitPlaywright,
       output_dir: s.outputDir,
     },
   });

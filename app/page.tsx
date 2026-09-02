@@ -11,8 +11,8 @@ interface ConfigStatus {
   pipeline: { mode: string; max_tickets: number; demo_mode: boolean; output_dir: string };
 }
 
-interface StageInfo { status: string; message: string; stream?: string }
-interface ProgressEvent { ticketKey: string; stage: string; status: string; message: string }
+interface StageInfo { status: string; message: string; stream?: string; duration?: number }
+interface ProgressEvent { ticketKey: string; stage: string; status: string; message: string; duration?: number }
 
 interface RunResponse {
   run_id: string;
@@ -20,6 +20,7 @@ interface RunResponse {
   invalid_inputs: string[];
   duplicates_removed: string[];
   successful: boolean;
+  zip_b64?: string | null;
   results: ResultItem[];
 }
 
@@ -36,6 +37,7 @@ interface ResultItem {
   test_cases: any;
   playwright: any;
   coverage: any;
+  needs_code?: boolean;
   artifacts_md: Record<string, string>;
 }
 
@@ -95,6 +97,21 @@ function ConfigSidebar({ status, mode }: { status: ConfigStatus | null; mode: st
 // ---------------------------------------------------------------------------
 // Stage progress (mirrors render_stage_list)
 // ---------------------------------------------------------------------------
+// Live elapsed timer for a RUNNING stage; static for completed/failed.
+function StageTimer({ info }: { info: StageInfo }) {
+  const [elapsed, setElapsed] = useState(0);
+  const running = info.status === "RUNNING" || info.status === "STREAM";
+  useEffect(() => {
+    if (!running) return;
+    const start = Date.now() - elapsed;
+    const id = setInterval(() => setElapsed(Math.round((Date.now() - start) / 1000)), 1000);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [running]);
+  const display = info.duration != null ? `${info.duration}s` : running ? `${elapsed}s` : "";
+  return display ? <span className="stage-time">{display}</span> : null;
+}
+
 function StageList({ stages }: { stages: Record<string, StageInfo> }) {
   return (
     <div className="stages">
@@ -102,18 +119,16 @@ function StageList({ stages }: { stages: Record<string, StageInfo> }) {
         const info = stages[stage] ?? { status: "PENDING", message: "" };
         const icon = STATUS_ICON[info.status] ?? "⚪";
         return (
-          <div className="qa-stage" key={stage}>
-            <div className="stage-row">
+          <details className="qa-stage" key={stage}>
+            <summary className="stage-row">
               {icon} <strong>{stage}</strong>
               {info.message && <span className="stage-msg"> — {esc(info.message)}</span>}
-            </div>
+              <StageTimer info={info} />
+            </summary>
             {info.stream && (
-              <details className="stage-output" open>
-                <summary>Agent output</summary>
-                <pre>{esc(decodeEntities(info.stream.slice(-4000)))}</pre>
-              </details>
+              <pre className="stage-stream">{esc(decodeEntities(info.stream.slice(-4000)))}</pre>
             )}
-          </div>
+          </details>
         );
       })}
     </div>
@@ -148,95 +163,15 @@ function RunProgress({ progress }: { progress: Record<string, Record<string, Sta
 }
 
 // ---------------------------------------------------------------------------
-// ZIP writer (store, no compression) — mirrors artifacts_service.build_zip
+// Server-built ZIP download (base64 from the API, includes test code)
 // ---------------------------------------------------------------------------
-function buildCrcTable(): Uint32Array {
-  const table = new Uint32Array(256);
-  for (let n = 0; n < 256; n++) {
-    let c = n;
-    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-    table[n] = c >>> 0;
-  }
-  return table;
-}
-
-function crc32(data: Uint8Array, table: Uint32Array): number {
-  let c = 0xffffffff;
-  for (let i = 0; i < data.length; i++) c = table[(c ^ data[i]) & 0xff] ^ (c >>> 8);
-  return (c ^ 0xffffffff) >>> 0;
-}
-
-function downloadAllZip(data: RunResponse) {
-  const encoder = new TextEncoder();
-  const files: Array<[string, Uint8Array]> = [];
-  for (const r of data.results) {
-    for (const [name, content] of Object.entries(r.artifacts_md ?? {})) {
-      files.push([`${r.ticket_key}/${name}`, encoder.encode(content)]);
-    }
-  }
-  if (!files.length) return;
-  const chunks: Uint8Array[] = [];
-  const localParts: Uint8Array[] = [];
-  let offset = 0;
-  const crcTable = buildCrcTable();
-  for (const [name, content] of files) {
-    const nameBytes = encoder.encode(name);
-    const crc = crc32(content, crcTable);
-    const local = new Uint8Array(30 + nameBytes.length);
-    const dv = new DataView(local.buffer);
-    dv.setUint32(0, 0x04034b50, true);
-    dv.setUint16(4, 20, true);
-    dv.setUint16(6, 0x800, true);
-    dv.setUint16(8, 0, true);
-    dv.setUint16(10, 0, true);
-    dv.setUint16(12, 0, true);
-    dv.setUint16(14, 0, true);
-    dv.setUint32(16, crc, true);
-    dv.setUint32(20, content.length, true);
-    dv.setUint32(24, content.length, true);
-    dv.setUint16(28, nameBytes.length, true);
-    dv.setUint16(30, 0, true);
-    local.set(nameBytes, 30);
-    chunks.push(local, content);
-    const central = new Uint8Array(46 + nameBytes.length);
-    const cdv = new DataView(central.buffer);
-    cdv.setUint32(0, 0x02014b50, true);
-    cdv.setUint16(4, 20, true);
-    cdv.setUint16(6, 20, true);
-    cdv.setUint16(8, 0x800, true);
-    cdv.setUint16(10, 0, true);
-    cdv.setUint16(12, 0, true);
-    cdv.setUint16(14, 0, true);
-    cdv.setUint16(16, 0, true);
-    cdv.setUint32(18, crc, true);
-    cdv.setUint32(22, content.length, true);
-    cdv.setUint32(26, content.length, true);
-    cdv.setUint16(30, nameBytes.length, true);
-    cdv.setUint16(32, 0, true);
-    cdv.setUint16(34, 0, true);
-    cdv.setUint16(36, 0, true);
-    cdv.setUint16(38, 0, true);
-    cdv.setUint32(40, 0, true);
-    cdv.setUint32(44, offset, true);
-    central.set(nameBytes, 46);
-    localParts.push(central);
-    offset += local.length + content.length;
-  }
-  const centralSize = localParts.reduce((a, b) => a + b.length, 0);
-  const eocd = new Uint8Array(22);
-  const edv = new DataView(eocd.buffer);
-  edv.setUint32(0, 0x06054b50, true);
-  edv.setUint16(8, files.length, true);
-  edv.setUint16(10, files.length, true);
-  edv.setUint32(12, centralSize, true);
-  edv.setUint32(16, offset, true);
-  const all = new Uint8Array(offset + centralSize + 22);
-  let pos = 0;
-  for (const c of [...chunks, ...localParts, eocd]) { all.set(c, pos); pos += c.length; }
-  const blob = new Blob([all], { type: "application/zip" });
+function downloadZipB64(b64: string, filename: string) {
+  const bytes = new Uint8Array(atob(b64).length);
+  for (let i = 0; i < bytes.length; i++) bytes[i] = atob(b64).charCodeAt(i);
+  const blob = new Blob([bytes], { type: "application/zip" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = url; a.download = `${data.run_id}_qa_artifacts.zip`; a.click();
+  a.href = url; a.download = filename; a.click();
   URL.revokeObjectURL(url);
 }
 
@@ -538,6 +473,7 @@ export default function Home() {
                     status: isResult ? prevStage.status || "COMPLETED" : p.status,
                     message: isResult ? prevStage.message : p.message,
                     stream: isResult ? p.message : prevStage.stream,
+                    duration: p.duration ?? prevStage.duration,
                   },
                 },
               };
@@ -562,6 +498,94 @@ export default function Home() {
           "The run was interrupted before it finished — the Vercel function likely hit its maximum duration. " +
           "Upgrade to a plan with a higher function timeout (Pro: 800s), or run fewer/simpler tickets."
         );
+      }
+    } catch (e) {
+      setStatusMsg("");
+      setError(`Request failed: ${e}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Generate Playwright code on demand (Vercel split mode). Sends the already
+  // produced analysis/plan/cases back; the server runs only the Playwright stage.
+  async function generateCode(result: ResultItem) {
+    setBusy(true);
+    setError("");
+    setStatusMsg(`${result.ticket_key} — Playwright Coder: RUNNING (this step can take ~1–2 min)`);
+    setProgress((prev) => ({
+      ...prev,
+      [result.ticket_key]: {
+        ...(prev[result.ticket_key] ?? {}),
+        "Playwright Coder": { status: "RUNNING", message: "Playwright Coder running" },
+      },
+    }));
+    try {
+      const res = await fetch("/api/run/code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ticket_key: result.ticket_key,
+          analysis: result.analysis,
+          test_plan: result.test_plan,
+          test_cases: result.test_cases,
+        }),
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        setError(json.error || res.statusText);
+        setBusy(false);
+        return;
+      }
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let bundle: any = null;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let idx;
+        while ((idx = buffer.indexOf("\n\n")) !== -1) {
+          const chunk = buffer.slice(0, idx);
+          buffer = buffer.slice(idx + 2);
+          const evt = chunk.split("\n").find((l) => l.startsWith("event: "))?.slice(7).trim();
+          const dataLine = chunk.split("\n").find((l) => l.startsWith("data: "))?.slice(6);
+          if (!evt || !dataLine) continue;
+          const payload = JSON.parse(dataLine);
+          if (evt === "progress") {
+            const p = payload as ProgressEvent;
+            setProgress((prev) => ({
+              ...prev,
+              [p.ticketKey]: {
+                ...(prev[p.ticketKey] ?? {}),
+                [p.stage]: { status: p.status, message: p.message, duration: p.duration, stream: p.status === "RESULT" ? p.message : prev[p.ticketKey]?.[p.stage]?.stream },
+              },
+            }));
+            setStatusMsg(`${p.ticketKey} — ${p.stage}: ${p.status}`);
+          } else if (evt === "done") {
+            bundle = payload.playwright;
+          } else if (evt === "error") {
+            setError(payload.error);
+          }
+        }
+      }
+      if (bundle) {
+        // Patch the ticket: set playwright, clear needs_code, update the run.
+        setData((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            results: prev.results.map((r) =>
+              r.ticket_key === result.ticket_key
+                ? { ...r, playwright: bundle, needs_code: false, status: "COMPLETED_WITH_WARNINGS" }
+                : r
+            ),
+          };
+        });
+        setStatusMsg(`${result.ticket_key} — Playwright code generated.`);
+      } else if (!error) {
+        setError("Code generation ended without a result.");
       }
     } catch (e) {
       setStatusMsg("");
@@ -682,7 +706,7 @@ export default function Home() {
                 </tbody>
               </table>
               <div className="row">
-                <button onClick={() => downloadAllZip(data)}>Download all artifacts (ZIP)</button>
+                <button onClick={() => data.zip_b64 && downloadZipB64(data.zip_b64, `${data.run_id}_qa_artifacts.zip`)}>Download all artifacts (ZIP)</button>
                 <span className="hint">Artifacts on disk: `outputs/`</span>
               </div>
             </div>
@@ -696,9 +720,21 @@ export default function Home() {
                   {r.playwright && <span className={`badge ${r.playwright.readiness === "READY" ? "badge-ok" : "badge-warn"}`}>Automation: {esc(r.playwright.readiness)}</span>}
                 </h2>
                 {r.error && <div className="err">{esc(r.error)}</div>}
+                {r.needs_code && (
+                  <div className="timeout-warn">
+                    <strong>Playwright code was not auto-generated</strong> — to stay within Vercel's 5-minute
+                    function limit, the code step runs separately. It calls the LLM once and can take{" "}
+                    <strong>~1–2 minutes</strong>. If it exceeds the limit, Vercel will cut it off.
+                    <div className="row" style={{ marginTop: ".6rem" }}>
+                      <button onClick={() => generateCode(r)} disabled={busy}>
+                        {busy ? "Generating…" : "Generate Playwright Code"}
+                      </button>
+                    </div>
+                  </div>
+                )}
                 {r.warnings.length > 0 && (
                   <details><summary>{r.warnings.length} warning(s)</summary>
-                    {r.warnings.map((w, i) => <div key={i} className="hint">{esc(w)}</div>)}
+                    {r.warnings.map((w, i) => <div key={i} className="hint">{esc(decodeEntities(w))}</div>)}
                   </details>
                 )}
                 <ResultTabs result={r} />

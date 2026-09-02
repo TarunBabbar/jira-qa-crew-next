@@ -32,6 +32,7 @@ export interface Settings {
   appName: string;
   outputDir: string;
   demoMode: boolean;
+  splitPlaywright: boolean;
 
   llmModel: string;
   llmApiKey: string;
@@ -65,6 +66,7 @@ export function loadSettings(): Settings {
     appName: env("APP_NAME", "Jira QA Crew"),
     outputDir: env("OUTPUT_DIR", "outputs"),
     demoMode: envBool("DEMO_MODE", false),
+    splitPlaywright: envBool("SPLIT_PLAYWRIGHT", false),
     llmModel: env("LLM_MODEL", "deepseek/deepseek-v4-flash"),
     llmApiKey: env("LLM_API_KEY") || env("DEEPSEEK_API_KEY"),
     llmBaseUrl: env("LLM_BASE_URL", "https://api.commandcode.ai/provider/v1"),

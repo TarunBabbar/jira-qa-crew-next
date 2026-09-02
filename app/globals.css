@@ -78,7 +78,8 @@ button {
 button:hover:not(:disabled) { background: var(--accent-hover); }
 button:disabled { opacity: .55; cursor: not-allowed; }
 
-.hint { color: var(--muted); font-size: .8rem; margin-top: .55rem; }
+.hint { color: var(--muted); font-size: .8rem; margin-top: .55rem; word-break: break-word; overflow-wrap: anywhere; }
+details { word-break: break-word; overflow-wrap: anywhere; }
 
 .badge {
   display: inline-block; padding: .12rem .5rem; border-radius: 999px;
@@ -157,34 +158,37 @@ code { background: var(--code-bg); padding: .12rem .38rem; border-radius: 4px; f
 .advanced { margin-top: 1.1rem; }
 .adv-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: .4rem .9rem; font-size: .88rem; }
 
-/* Stage progress — live agent timeline */
+/* Stage progress — live agent timeline (each stage is a collapsed <details>) */
 .stages { margin-top: .5rem; }
 .qa-stage {
-  border-left: 3px solid var(--border); padding: .3rem .7rem; margin: .25rem 0;
+  border-left: 3px solid var(--border); margin: .25rem 0;
   background: rgba(160,113,47,.04); border-radius: 0 8px 8px 0; font-size: .85rem;
-  transition: border-color .3s;
+  transition: border-color .3s; border-top: 1px solid transparent; border-right: 1px solid transparent; border-bottom: 1px solid transparent;
 }
 .qa-stage.active { border-left-color: var(--accent); background: rgba(160,113,47,.08); }
 .qa-stage.done { border-left-color: var(--ok); background: rgba(91,122,77,.07); }
 .qa-stage.failed { border-left-color: var(--err); background: rgba(160,64,47,.07); }
-.stage-row { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
+.qa-stage summary {
+  display: flex; align-items: center; gap: .4rem; flex-wrap: wrap;
+  cursor: pointer; padding: .3rem .7rem; user-select: none; list-style: none;
+}
+.qa-stage summary::-webkit-details-marker { display: none; }
 .stage-msg { color: var(--muted); font-size: .78rem; }
-.stage-output {
-  margin: .4rem 0 0; background: var(--panel-2); border: 1px solid var(--border);
-  border-radius: 6px; padding: 0; max-width: 100%;
+.stage-time {
+  font-size: .72rem; color: var(--muted); background: var(--panel);
+  border: 1px solid var(--border); border-radius: 999px; padding: .05rem .5rem;
+  font-variant-numeric: tabular-nums; margin-left: auto; white-space: nowrap;
 }
-.stage-output summary {
-  cursor: pointer; font-size: .72rem; font-weight: 600; color: var(--accent);
-  padding: .35rem .6rem; user-select: none; list-style: none; letter-spacing: .2px;
-}
-.stage-output summary::before { content: "▸ "; transition: transform .15s; display: inline-block; }
-.stage-output[open] summary::before { transform: rotate(90deg); }
-.stage-output pre {
-  margin: 0; padding: .5rem .7rem; border-top: 1px solid var(--border);
+.stage-stream {
+  margin: 0 .7rem .5rem; padding: .5rem .7rem; border-top: 1px solid var(--border);
   font-size: .72rem; line-height: 1.5; white-space: pre-wrap; word-break: break-word;
   color: var(--text); font-family: inherit; background: var(--panel);
+  border-radius: 0 0 6px 6px; max-height: 200px; overflow-y: auto;
 }
-.stage-output pre:empty { display: none; }
+.timeout-warn {
+  color: var(--warn); background: rgba(176,138,46,.12); border: 1px solid rgba(176,138,46,.35);
+  border-radius: 10px; padding: .7rem .9rem; margin: .5rem 0 .8rem; font-size: .84rem; line-height: 1.5;
+}
 
 /* Running status indicator next to the button */
 .run-status { display: inline-flex; align-items: center; gap: .5rem; }

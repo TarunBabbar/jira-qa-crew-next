@@ -58,7 +58,7 @@ function newRunSummary(): RunSummary {
   };
 }
 
-export type ProgressCallback = (ticketKey: string, stage: StageName, status: string, message: string) => void;
+export type ProgressCallback = (ticketKey: string, stage: StageName, status: string, message: string, duration?: number) => void;
 
 export class QAPipeline {
   private llm: CommandCodeLlm;
@@ -69,8 +69,8 @@ export class QAPipeline {
     this.jira = new JiraRestProvider(settings);
   }
 
-  private emit(ticketKey: string, stage: StageName, status: string, message: string) {
-    this.progress?.(ticketKey, stage, status, message);
+  private emit(ticketKey: string, stage: StageName, status: string, message: string, duration?: number) {
+    this.progress?.(ticketKey, stage, status, message, duration);
   }
 
   async run(ticketKeys: string[]): Promise<RunSummary> {
@@ -193,19 +193,31 @@ export class QAPipeline {
       repair: null,
     });
 
-    // Stage 4: playwright
-    const bundle = await this.stage<PlaywrightBundle>({
-      result,
-      stageName: "Playwright Coder",
-      buildPrompt: () =>
-        PLAYWRIGHT_DESCRIPTION
-          .replaceAll("{ticket_key}", key)
-          .replaceAll("{spec_filename}", `${key.toLowerCase().replaceAll("_", "-")}.spec.ts`)
-          + "\n\n" + casesHandoff(suite),
-      schema: playwrightSchema(),
-      validate: (obj) => validatePlaywright(obj, suite, key),
-      repair: null,
-    });
+    // Stage 4: playwright — skipped on Vercel (split) so the request stays under
+    // the 300s function limit; the user triggers it separately via /api/run/code.
+    let bundle: PlaywrightBundle | null = null;
+    if (this.settings.splitPlaywright) {
+      const pwStage = result.stages.find((s) => s.stage === "Playwright Coder")!;
+      pwStage.status = "PENDING";
+      pwStage.message = "Skipped — generate on demand";
+      result.warnings.push(
+        "[Playwright] Code not generated automatically to stay within Vercel's 5-minute " +
+        "function limit. Click 'Generate Playwright Code' to run the Playwright Coder in a separate request."
+      );
+    } else {
+      bundle = await this.stage<PlaywrightBundle>({
+        result,
+        stageName: "Playwright Coder",
+        buildPrompt: () =>
+          PLAYWRIGHT_DESCRIPTION
+            .replaceAll("{ticket_key}", key)
+            .replaceAll("{spec_filename}", `${key.toLowerCase().replaceAll("_", "-")}.spec.ts`)
+            + "\n\n" + casesHandoff(suite),
+        schema: playwrightSchema(),
+        validate: (obj) => validatePlaywright(obj, suite, key),
+        repair: null,
+      });
+    }
 
     result.analysis = analysis;
     result.test_plan = plan;
@@ -226,6 +238,47 @@ export class QAPipeline {
     this.emit(key, "Artifacts", "COMPLETED", artifactStage.message);
 
     result.status = result.warnings.length ? "COMPLETED_WITH_WARNINGS" : "COMPLETED";
+  }
+
+  // Run ONLY the Playwright stage against already-validated upstream output.
+  // Used by /api/run/code on Vercel, where the full pipeline is split so no
+  // single request exceeds the 300s function limit.
+  async runPlaywrightOnly(input: {
+    ticketKey: string;
+    analysis: RequirementAnalysis;
+    testPlan: TestPlan;
+    testCases: TestCaseSuite;
+  }): Promise<PlaywrightBundle> {
+    const { ticketKey: key, analysis, testPlan: _plan, testCases: suite } = input;
+    const result: TicketResult = {
+      ticket_key: key,
+      status: "RUNNING",
+      source: null,
+      issue: null,
+      analysis,
+      test_plan: _plan,
+      test_cases: suite,
+      playwright: null,
+      coverage: null,
+      stages: newStageSet(),
+      warnings: [],
+      error: "",
+      started_at: new Date().toISOString(),
+      finished_at: null,
+    };
+    const bundle = await this.stage<PlaywrightBundle>({
+      result,
+      stageName: "Playwright Coder",
+      buildPrompt: () =>
+        PLAYWRIGHT_DESCRIPTION
+          .replaceAll("{ticket_key}", key)
+          .replaceAll("{spec_filename}", `${key.toLowerCase().replaceAll("_", "-")}.spec.ts`)
+          + "\n\n" + casesHandoff(suite),
+      schema: playwrightSchema(),
+      validate: (obj) => validatePlaywright(obj, suite, key),
+      repair: null,
+    });
+    return bundle;
   }
 
   private async stage<T>(opts: {
@@ -281,9 +334,13 @@ export class QAPipeline {
     stage.status = validation.warnings.length ? "WARNING" : "COMPLETED";
     stage.message = `${opts.stageName} completed` + (validation.warnings.length ? ` with ${validation.warnings.length} warning(s)` : "");
     stage.finished_at = new Date().toISOString();
-    this.emit(opts.result.ticket_key, opts.stageName, stage.status, stage.message);
+    const duration =
+      stage.started_at && stage.finished_at
+        ? Math.round((new Date(stage.finished_at).getTime() - new Date(stage.started_at).getTime()) / 1000)
+        : undefined;
+    this.emit(opts.result.ticket_key, opts.stageName, stage.status, stage.message, duration);
     // Emit a clean, readable summary of what the agent produced (no raw JSON).
-    this.emit(opts.result.ticket_key, opts.stageName, "RESULT", summarizeStage(opts.stageName, obj as Record<string, any>));
+    this.emit(opts.result.ticket_key, opts.stageName, "RESULT", summarizeStage(opts.stageName, obj as Record<string, any>), duration);
     return obj;
   }
 

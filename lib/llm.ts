@@ -139,38 +139,61 @@ export class CommandCodeLlm {
     };
     if (opts.responseFormat) body.response_format = opts.responseFormat;
 
-    let res: Response;
-    try {
-      res = await fetch(`${llmBaseUrl}/chat/completions`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${llmApiKey}`,
-        },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(240000),
-      });
-    } catch (e) {
-      throw new LlmError(`LLM request failed: ${e}`);
-    }
+    // Bounded backoff for transient upstream failures (524/5xx/429/network).
+    // The provider is "temporarily unavailable" from time to time; retrying a
+    // couple of times with a pause usually clears it. Non-transient errors
+    // (400/401/403) fail immediately.
+    const retryableStatus = (status: number) => status === 524 || status === 429 || status >= 500;
+    const attempts = Math.max(1, this.settings.pipelineMaxRetries + 1);
+    let lastError: Error | null = null;
 
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new LlmError(`LLM HTTP ${res.status}: ${text.slice(0, 400)}`);
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      let res: Response;
+      try {
+        res = await fetch(`${llmBaseUrl}/chat/completions`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${llmApiKey}`,
+          },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(240000),
+        });
+      } catch (e) {
+        // Network failure / timeout — retryable.
+        lastError = new LlmError(`LLM request failed: ${e}`);
+        if (attempt < attempts) {
+          await new Promise((r) => setTimeout(r, Math.min(2 ** attempt * 1000, 10000)));
+          continue;
+        }
+        throw lastError;
+      }
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        if (retryableStatus(res.status) && attempt < attempts) {
+          lastError = new LlmError(`LLM HTTP ${res.status}: ${text.slice(0, 400)}`);
+          await new Promise((r) => setTimeout(r, Math.min(2 ** attempt * 1000, 10000)));
+          continue;
+        }
+        throw new LlmError(`LLM HTTP ${res.status}: ${text.slice(0, 400)}`);
+      }
+
+      const data = await res.json();
+      const choice = data?.choices?.[0];
+      const content: string = choice?.message?.content ?? "";
+      if (!content) {
+        throw new LlmError("Invalid response from LLM call - None or empty");
+      }
+      return {
+        content,
+        usage: {
+          promptTokens: data?.usage?.prompt_tokens,
+          completionTokens: data?.usage?.completion_tokens,
+        },
+      };
     }
-    const data = await res.json();
-    const choice = data?.choices?.[0];
-    const content: string = choice?.message?.content ?? "";
-    if (!content) {
-      throw new LlmError("Invalid response from LLM call - None or empty");
-    }
-    return {
-      content,
-      usage: {
-        promptTokens: data?.usage?.prompt_tokens,
-        completionTokens: data?.usage?.completion_tokens,
-      },
-    };
+    throw lastError ?? new LlmError("LLM request failed");
   }
 
   // Run one stage prompt, applying the enforcement ladder and returning parsed JSON

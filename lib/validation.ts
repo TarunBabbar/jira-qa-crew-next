@@ -50,7 +50,7 @@ export function validateAnalysis(obj: RequirementAnalysis, ticketKey: string): V
     }
   }
   for (const req of obj.requirements ?? []) {
-    if (req.provenance === "EXPLICIT" && !req.source_quote.trim()) {
+    if (req.provenance === "EXPLICIT" && !(req.source_quote ?? "").trim()) {
       warnings.push(`${req.id} is EXPLICIT but has no verbatim source quote`);
     }
   }

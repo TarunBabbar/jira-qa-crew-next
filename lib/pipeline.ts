@@ -195,15 +195,12 @@ export class QAPipeline {
 
     // Stage 4: playwright — skipped on Vercel (split) so the request stays under
     // the 300s function limit; the user triggers it separately via /api/run/code.
+    // The banner in the UI (needs_code) explains this, so no redundant warning.
     let bundle: PlaywrightBundle | null = null;
     if (this.settings.splitPlaywright) {
       const pwStage = result.stages.find((s) => s.stage === "Playwright Coder")!;
       pwStage.status = "PENDING";
       pwStage.message = "Skipped — generate on demand";
-      result.warnings.push(
-        "[Playwright] Code not generated automatically to stay within Vercel's 5-minute " +
-        "function limit. Click 'Generate Playwright Code' to run the Playwright Coder in a separate request."
-      );
     } else {
       bundle = await this.stage<PlaywrightBundle>({
         result,

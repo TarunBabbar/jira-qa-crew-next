@@ -226,7 +226,7 @@ export function planHandoff(plan: TestPlan): string {
   if (plan.scenarios.length) {
     lines.push("", "Scenarios to expand into test cases:");
     for (const scenario of plan.scenarios.slice(0, MAX_ITEMS)) {
-      const refs = [...scenario.requirement_ids, ...scenario.acceptance_criteria_ids].join(", ");
+      const refs = [...(scenario.requirement_ids ?? []), ...(scenario.acceptance_criteria_ids ?? [])].join(", ");
       lines.push(`- ${scenario.id} [${scenario.priority}] ${clip(scenario.title)} (traces to ${refs})`);
     }
   }
@@ -246,7 +246,7 @@ export function casesHandoff(suite: TestCaseSuite): string {
   ];
   if (!automatable.length) lines.push("- (none: no test case was marked Yes or Partial)");
   for (const case_ of automatable.slice(0, MAX_ITEMS)) {
-    const refs = [...case_.requirement_ids, ...case_.acceptance_criteria_ids].join(", ");
+    const refs = [...(case_.requirement_ids ?? []), ...(case_.acceptance_criteria_ids ?? [])].join(", ");
     lines.push(
       "",
       `### ${case_.id} [${case_.automation_candidate}, ${case_.priority}, ${case_.test_type}] ${clip(case_.title)}`,

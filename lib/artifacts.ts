@@ -106,7 +106,7 @@ export function renderTestPlanMd(plan: TestPlan): string {
           s.id,
           s.title,
           s.priority,
-          [...s.requirement_ids, ...s.acceptance_criteria_ids].join(", "),
+          [...(s.requirement_ids ?? []), ...(s.acceptance_criteria_ids ?? [])].join(", "),
         ])
       )
     );
@@ -125,21 +125,21 @@ export function renderTestCasesMd(suite: TestCaseSuite): string {
         ["Type", tc.test_type],
         ["Automation", tc.automation_candidate],
         ["Objective", tc.objective],
-        ["Traces to", [...tc.requirement_ids, ...tc.acceptance_criteria_ids].join(", ")],
+        ["Traces to", [...(tc.requirement_ids ?? []), ...(tc.acceptance_criteria_ids ?? [])].join(", ")],
       ]
     ));
-    if (tc.preconditions.length) lines.push("", "**Preconditions:**", ...tc.preconditions.map((p) => `- ${p}`));
-    if (tc.test_data.length) lines.push("", "**Test data:**", ...tc.test_data.map((d) => `- ${d}`));
+    if ((tc.preconditions ?? []).length) lines.push("", "**Preconditions:**", ...tc.preconditions.map((p) => `- ${p}`));
+    if ((tc.test_data ?? []).length) lines.push("", "**Test data:**", ...tc.test_data.map((d) => `- ${d}`));
     lines.push("", "| # | Action | Expected |", "| --- | --- | --- |");
-    for (const step of tc.steps) {
+    for (const step of tc.steps ?? []) {
       lines.push(`| ${step.number} | ${cell(step.action)} | ${cell(step.expected || "—")} |`);
     }
     lines.push("", `**Expected result:** ${tc.expected_result || "—"}`);
     if (tc.automation_rationale) lines.push("", `**Automation rationale:** ${tc.automation_rationale}`);
-    if (tc.assumptions_or_blockers.length) {
+    if ((tc.assumptions_or_blockers ?? []).length) {
       lines.push("", "**Assumptions / blockers:**", ...tc.assumptions_or_blockers.map((b) => `- ${b}`));
     }
-    if (tc.tags.length) lines.push("", `**Tags:** ${tc.tags.join(", ")}`);
+    if ((tc.tags ?? []).length) lines.push("", `**Tags:** ${tc.tags.join(", ")}`);
     lines.push("");
   }
   return lines.join("\n");
@@ -150,8 +150,8 @@ export function renderTestCasesCsv(suite: TestCaseSuite): string {
   for (const tc of suite.test_cases) {
     rows.push([
       tc.id, tc.title, tc.priority, tc.test_type, tc.automation_candidate,
-      tc.requirement_ids.join(";"), tc.acceptance_criteria_ids.join(";"),
-      String(tc.steps.length), tc.expected_result,
+      (tc.requirement_ids ?? []).join(";"), (tc.acceptance_criteria_ids ?? []).join(";"),
+      String((tc.steps ?? []).length), tc.expected_result,
     ]);
   }
   return rows.map((r) => r.map(csvCell).join(",")).join("\n");
@@ -194,14 +194,14 @@ export function renderPlaywrightMd(bundle: PlaywrightBundle): string {
   for (const file of bundle.files) {
     lines.push(`## ${file.path}`, "", "```typescript", file.content, "```", "");
   }
-  if (bundle.traces.length) {
+  if ((bundle.traces ?? []).length) {
     lines.push("## Traces", "");
     lines.push(mdTable(
       ["Test", "Test case", "Traces to"],
-      bundle.traces.map((t) => [
+      (bundle.traces ?? []).map((t) => [
         t.test_name,
         t.test_case_id,
-        [...t.requirement_ids, ...t.acceptance_criteria_ids].join(", "),
+        [...(t.requirement_ids ?? []), ...(t.acceptance_criteria_ids ?? [])].join(", "),
       ])
     ));
   }

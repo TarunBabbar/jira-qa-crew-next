@@ -8,7 +8,7 @@ import { useEffect, useRef, useState } from "react";
 interface ConfigStatus {
   llm: { ready: boolean; model: string; api_key: string; temperature: number; structured_output: string };
   jiraRest: { ready: boolean; url: string; auth_mode: string; email: string; token: string };
-  pipeline: { mode: string; max_tickets: number; demo_mode: boolean; output_dir: string };
+  pipeline: { mode: string; max_tickets: number; demo_mode: boolean; split_playwright?: boolean; output_dir: string };
 }
 
 interface StageInfo { status: string; message: string; stream?: string; duration?: number }
@@ -51,6 +51,25 @@ const esc = (s: unknown) =>
   String(s ?? "").replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string)
   );
+
+// Human-friendly status label (the raw enum is long and overflows boxes).
+function statusLabel(s: string): string {
+  switch (s) {
+    case "COMPLETED_WITH_WARNINGS": return "Completed with warnings";
+    case "COMPLETED": return "Completed";
+    case "FAILED": return "Failed";
+    case "RUNNING": return "Running";
+    default: return s;
+  }
+}
+
+function readinessLabel(s: string): string {
+  switch (s) {
+    case "NEEDS_CONFIGURATION": return "Needs config";
+    case "NOT_APPLICABLE": return "Not applicable";
+    default: return s;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Sidebar config (mirrors render_config_panel)
@@ -374,7 +393,7 @@ function ResultTabs({ result }: { result: ResultItem }) {
           <div className="metrics">
             <div className="metric"><div className="v">{esc(result.source || "—")}</div><div className="k">Source</div></div>
             <div className="metric"><div className="v">{result.duration_seconds ?? 0}s</div><div className="k">Duration</div></div>
-            <div className="metric"><div className="v">{esc(result.status)}</div><div className="k">Status</div></div>
+            <div className="metric"><div className="v status-v">{esc(statusLabel(result.status))}</div><div className="k">Status</div></div>
           </div>
           <h4>Stages</h4>
           <table>
@@ -414,7 +433,15 @@ export default function Home() {
   progressRef.current = progress;
 
   useEffect(() => {
-    fetch("/api/config").then((r) => r.json()).then(setStatus).catch(() => {});
+    fetch("/api/config")
+      .then((r) => r.json())
+      .then((s: ConfigStatus) => {
+        setStatus(s);
+        // Select the env-configured integration mode so the radio matches the
+        // green Jira status in the sidebar (instead of defaulting to Auto).
+        setMode((prev) => prev || s.pipeline.mode);
+      })
+      .catch(() => {});
   }, []);
 
   async function run() {
@@ -694,7 +721,7 @@ export default function Home() {
                   {data.results.map((r) => (
                     <tr key={r.ticket_key}>
                       <td>{esc(r.ticket_key)}</td>
-                      <td>{esc(r.status)}</td>
+                      <td>{esc(statusLabel(r.status))}</td>
                       <td>{esc(r.source || "—")}</td>
                       <td>{esc(r.playwright?.readiness || "—")}</td>
                       <td>{r.coverage?.total_requirements ?? 0}</td>
@@ -715,9 +742,9 @@ export default function Home() {
               <div className="card result-card" key={r.ticket_key}>
                 <h2 className="result-head">
                   {esc(r.ticket_key)}
-                  <span className={`badge ${r.status === "FAILED" ? "badge-err" : r.status === "COMPLETED" ? "badge-ok" : "badge-warn"}`}>{esc(r.status)}</span>
+                  <span className={`badge ${r.status === "FAILED" ? "badge-err" : r.status === "COMPLETED" ? "badge-ok" : "badge-warn"}`}>{esc(statusLabel(r.status))}</span>
                   {r.source && <span className="badge badge-src">Source: {esc(r.source)}</span>}
-                  {r.playwright && <span className={`badge ${r.playwright.readiness === "READY" ? "badge-ok" : "badge-warn"}`}>Automation: {esc(r.playwright.readiness)}</span>}
+                  {r.playwright && <span className={`badge ${r.playwright.readiness === "READY" ? "badge-ok" : "badge-warn"}`}>Automation: {esc(readinessLabel(r.playwright.readiness))}</span>}
                 </h2>
                 {r.error && <div className="err">{esc(r.error)}</div>}
                 {r.needs_code && (
